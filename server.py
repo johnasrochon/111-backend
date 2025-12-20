@@ -5,6 +5,8 @@ app = Flask(__name__)
 
 DB_NAME = "budget.manage.db"
 
+ALLOWED_CATEGORIES = ["Food", "Education", "Entertainment"]
+
 def init_db():
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
@@ -46,13 +48,13 @@ def init_db():
         VALUES (?, ?)
     """, users)
 
-    # Seed expenses (only once)
+    # Seed expenses
     expenses = [
         ("2025-01-05", "Groceries", "Weekly grocery shopping", 85.40, "Jan 5, 2025", "Food", 1),
-        ("2025-01-07", "Gas", "Car fuel", 42.00, "Jan 7, 2025", "Transportation", 2),
-        ("2025-01-10", "Internet Bill", "Monthly internet payment", 65.99, "Jan 10, 2025", "Utilities", 1),
-        ("2025-01-12", "Coffee", "Morning coffee", 4.75, "Jan 12, 2025", "Food", 3),
-        ("2025-01-15", "Gym Membership", "Monthly gym fee", 30.00, "Jan 15, 2025", "Health", 4),
+        ("2025-01-07", "Books", "College textbooks", 120.00, "Jan 7, 2025", "Education", 2),
+        ("2025-01-10", "Movie Night", "Cinema tickets", 30.00, "Jan 10, 2025", "Entertainment", 3),
+        ("2025-01-12", "Lunch", "Cafe lunch", 12.50, "Jan 12, 2025", "Food", 1),
+        ("2025-01-15", "Online Course", "Python course", 55.00, "Jan 15, 2025", "Education", 4),
     ]
 
     cursor.executemany("""
@@ -64,8 +66,19 @@ def init_db():
     conn.commit()
     conn.close()
 
-# Initialize DB on app start
 init_db()
+
+def row_to_dict(row):
+    return {
+        "id": row[0],
+        "date": row[1],
+        "title": row[2],
+        "description": row[3],
+        "amount": row[4],
+        "date_str": row[5],
+        "category": row[6],
+        "user_id": row[7]
+    }
 
 @app.get("/api/health")
 def health_check():
@@ -87,3 +100,83 @@ def register():
     conn.close()
 
     return jsonify({"message": "user registered successfully"}), 201
+
+# 1. GET all expenses
+@app.get("/api/expenses")
+def get_expenses():
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM expenses")
+    rows = cursor.fetchall()
+    conn.close()
+
+    return jsonify([row_to_dict(row) for row in rows]), 200
+
+# 2. GET single expense
+@app.get("/api/expenses/<int:expense_id>")
+def get_expense(expense_id):
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM expenses WHERE id = ?", (expense_id,))
+    row = cursor.fetchone()
+    conn.close()
+
+    if not row:
+        return jsonify({"error": "Expense not found"}), 404
+
+    return jsonify(row_to_dict(row)), 200
+
+# 3. UPDATE expense
+@app.put("/api/expenses/<int:expense_id>")
+def update_expense(expense_id):
+    data = request.get_json()
+
+    if "category" in data and data["category"] not in ALLOWED_CATEGORIES:
+        return jsonify({
+            "error": "Invalid category. Allowed values: Food, Education, Entertainment"
+        }), 400
+
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+
+    cursor.execute("SELECT * FROM expenses WHERE id = ?", (expense_id,))
+    if not cursor.fetchone():
+        conn.close()
+        return jsonify({"error": "Expense not found"}), 404
+
+    fields = []
+    values = []
+
+    for field in ["title", "description", "amount", "category", "user_id"]:
+        if field in data:
+            fields.append(f"{field} = ?")
+            values.append(data[field])
+
+    if fields:
+        values.append(expense_id)
+        cursor.execute(
+            f"UPDATE expenses SET {', '.join(fields)} WHERE id = ?",
+            values
+        )
+        conn.commit()
+
+    conn.close()
+    return jsonify({"message": "Expense updated successfully"}), 200
+
+# 4. DELETE expense
+@app.delete("/api/expenses/<int:expense_id>")
+def delete_expense(expense_id):
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+
+    cursor.execute("SELECT * FROM expenses WHERE id = ?", (expense_id,))
+    if not cursor.fetchone():
+        conn.close()
+        return jsonify({"error": "Expense not found"}), 404
+
+    cursor.execute("DELETE FROM expenses WHERE id = ?", (expense_id,))
+    conn.commit()
+    conn.close()
+
+    return jsonify({"message": "Expense deleted successfully"}), 200
+
