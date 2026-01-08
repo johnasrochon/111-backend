@@ -180,3 +180,10 @@ def delete_expense(expense_id):
 
     return jsonify({"message": "Expense deleted successfully"}), 200
 
+
+
+# Frontend
+@app.get("/")
+def home ():
+    return render_template("home.html")
+
